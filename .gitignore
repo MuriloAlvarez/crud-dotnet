@@ -1,0 +1,43 @@
+# Build artifacts
+**/[Bb]in/
+**/[Oo]bj/
+
+# IDE folders
+.vs/
+.vscode/
+.idea/
+
+# User-specific files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+*~
+
+# Logs and test outputs
+*.log
+TestResults/
+coverage/
+coverage.*
+*.coverage
+*.coveragexml
+
+# NuGet packages
+*.nupkg
+*.snupkg
+packages/
+
+# Build output folders
+artifacts/
+BenchmarkDotNet.Artifacts/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local configuration and secrets
+appsettings.Development.json
+secrets.json
