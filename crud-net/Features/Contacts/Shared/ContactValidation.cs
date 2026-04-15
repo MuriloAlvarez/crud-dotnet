@@ -34,9 +34,15 @@ public static class ContactValidation
             return;
         }
 
-        if (name.Trim().Length < 3)
+        var trimmedName = name.Trim();
+        if (trimmedName.Length < ContactRules.MinNameLength)
         {
-            AddError(errors, nameof(CreateContactRequest.Name), "Nome do contato deve ter ao menos 3 caracteres.");
+            AddError(errors, nameof(CreateContactRequest.Name), $"Nome do contato deve ter ao menos {ContactRules.MinNameLength} caracteres.");
+        }
+
+        if (trimmedName.Length > ContactRules.MaxNameLength)
+        {
+            AddError(errors, nameof(CreateContactRequest.Name), $"Nome do contato deve ter no máximo {ContactRules.MaxNameLength} caracteres.");
         }
     }
 

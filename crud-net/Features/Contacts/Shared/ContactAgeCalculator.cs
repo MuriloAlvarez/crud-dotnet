@@ -18,5 +18,5 @@ public static class ContactAgeCalculator
         return Math.Max(age, 0);
     }
 
-    public static bool IsAdult(DateOnly dateOfBirth, DateOnly currentDate) => CalculateAge(dateOfBirth, currentDate) >= 18;
+    public static bool IsAdult(DateOnly dateOfBirth, DateOnly currentDate) => CalculateAge(dateOfBirth, currentDate) >= ContactRules.AdultAge;
 }

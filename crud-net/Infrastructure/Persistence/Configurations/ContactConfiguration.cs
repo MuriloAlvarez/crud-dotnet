@@ -14,7 +14,7 @@ public sealed class ContactConfiguration : IEntityTypeConfiguration<Contact>
 
         builder.Property(contact => contact.Name)
             .IsRequired()
-            .HasMaxLength(200);
+            .HasMaxLength(ContactRules.MaxNameLength);
 
         builder.Property(contact => contact.DateOfBirth)
             .IsRequired()

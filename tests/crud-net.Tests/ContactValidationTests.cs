@@ -44,4 +44,16 @@ public sealed class ContactValidationTests
 
 		Assert.Empty(errors);
 	}
+
+	[Fact]
+	public void ValidateCreate_WhenNameExceedsMaxLength_ReturnsError()
+	{
+		var longName = new string('A', ContactRules.MaxNameLength + 1);
+		var request = new CreateContactRequest(longName, new DateOnly(1990, 4, 15), Gender.Female);
+
+		var errors = ContactValidation.ValidateCreate(request, new DateOnly(2026, 4, 15));
+
+		Assert.Contains(nameof(CreateContactRequest.Name), errors.Keys);
+		Assert.Contains(errors[nameof(CreateContactRequest.Name)], message => message.Contains("no máximo", StringComparison.OrdinalIgnoreCase));
+	}
 }
