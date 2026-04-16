@@ -1,4 +1,4 @@
-using crud_net.Features.Contacts;
+using crud_net.Features.Contacts.Domain.Services;
 
 namespace crud_net.Tests;
 

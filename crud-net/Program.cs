@@ -1,12 +1,16 @@
-﻿using crud_net.Features.Contacts;
-using crud_net.Infrastructure.Persistence;
-using crud_net.Infrastructure.Persistence.Repositories;
-using Microsoft.AspNetCore.Diagnostics;
+﻿using crud_net.Features.Contacts.Domain.Services;
+using crud_net.Features.Contacts.Infrastructure.Persistence;
+using crud_net.Features.Contacts.Infrastructure.Persistence.Repositories;
+using crud_net.Features.Contacts.Repositories;
+using crud_net.Features.Contacts.UseCases;
+using crud_net.Features.Contacts.Validations;
+using crud_net.Shared.Errors;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -24,6 +28,14 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(connectionString));
 
 builder.Services.AddScoped<IContactRepository, ContactRepository>();
+builder.Services.AddScoped<IContactInputValidator, ContactInputValidator>();
+builder.Services.AddScoped<CreateContactUseCase>();
+builder.Services.AddScoped<ListActiveContactsUseCase>();
+builder.Services.AddScoped<GetActiveContactDetailsUseCase>();
+builder.Services.AddScoped<UpdateActiveContactUseCase>();
+builder.Services.AddScoped<ActivateContactUseCase>();
+builder.Services.AddScoped<DeactivateContactUseCase>();
+builder.Services.AddScoped<DeleteContactUseCase>();
 builder.Services.AddSingleton<IAppClock, SystemClock>();
 
 var app = builder.Build();
@@ -34,29 +46,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseExceptionHandler(errorApp =>
-{
-    errorApp.Run(async context =>
-    {
-        var exceptionFeature = context.Features.Get<IExceptionHandlerPathFeature>();
-        var detail = app.Environment.IsDevelopment()
-            ? exceptionFeature?.Error.Message
-            : "An unexpected error occurred.";
-
-        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        await Results.Problem(
-            title: "Unexpected error",
-            detail: detail,
-            statusCode: StatusCodes.Status500InternalServerError)
-            .ExecuteAsync(context);
-    });
-});
+app.UseGlobalExceptionHandling(app.Environment);
 
 app.UseHttpsRedirection();
 
 app.MapGet("/", () => Results.Ok(new { message = "Contacts API is running." }));
 
-app.MapContactsEndpoints();
+app.MapControllers();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 

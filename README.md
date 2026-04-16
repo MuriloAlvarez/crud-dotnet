@@ -1,72 +1,137 @@
-# CRUD de Contatos - .NET 8 (Vertical Slice)
+# CRUD de Contatos - .NET 8 (Arquitetura Modular por Dominio)
 
-## 1. Visão Geral
+## 1. Visao geral
 
-Este projeto implementa uma API REST para gerenciamento de contatos, seguindo os requisitos do teste técnico:
+Este projeto implementa uma API REST de contatos em .NET 8 com foco em separacao clara de responsabilidades por modulo de dominio.
 
-- Criar, listar, visualizar, editar, ativar, desativar e excluir contatos.
-- Considerar apenas contatos ativos para listagem, visualização e edição.
-- Calcular idade em tempo de execução.
-- Garantir regras de maioridade e consistência da data de nascimento.
+Objetivos da refatoracao:
 
-A solução foi estruturada em Vertical Slice por caso de uso, com foco em baixo acoplamento, alta coesão e testabilidade.
+- Organizar o codigo em src/Features e src/Shared.
+- Eliminar estrutura por pasta de caso de uso.
+- Preservar contrato HTTP e comportamento funcional.
+- Manter stack atual (ASP.NET Core + EF Core SQL Server).
 
-## 2. Tecnologias Utilizadas
+## 2. Stack
 
 - .NET 8
-- ASP.NET Core Minimal APIs
+- ASP.NET Core Web API (Controllers)
 - Entity Framework Core 8 (SQL Server)
 - Swagger / OpenAPI
 - xUnit
+- Moq
 - Microsoft.AspNetCore.Mvc.Testing
 - EF Core InMemory (testes)
 
-## 3. Estrutura do Projeto
+## 3. Estrutura do projeto
 
 ```text
 crud-net/
 ├── crud-net.sln
 ├── README.md
-├── .gitignore
 ├── crud-net/
 │   ├── Program.cs
 │   ├── appsettings.json
 │   ├── crud-net.csproj
-│   ├── Features/
-│   │   └── Contacts/
-│   │       ├── ContactsModule.cs
-│   │       ├── Create/
-│   │       ├── ListActive/
-│   │       ├── GetActiveById/
-│   │       ├── UpdateActive/
-│   │       ├── Activate/
-│   │       ├── Deactivate/
-│   │       ├── Delete/
-│   │       └── Shared/
-│   └── Infrastructure/
-│       └── Persistence/
-│           ├── AppDbContext.cs
-│           ├── Configurations/
-│           └── Repositories/
+│   └── src/
+│       ├── Features/
+│       │   └── Contacts/
+│       │       ├── Controllers/
+│       │       │   └── ContactController.cs
+│       │       ├── UseCases/
+│       │       │   ├── CreateContactUseCase.cs
+│       │       │   ├── ListActiveContactsUseCase.cs
+│       │       │   ├── GetActiveContactDetailsUseCase.cs
+│       │       │   ├── UpdateActiveContactUseCase.cs
+│       │       │   ├── ActivateContactUseCase.cs
+│       │       │   ├── DeactivateContactUseCase.cs
+│       │       │   └── DeleteContactUseCase.cs
+│       │       ├── DTOs/
+│       │       │   ├── CreateContactInputDto.cs
+│       │       │   ├── UpdateActiveContactInputDto.cs
+│       │       │   ├── ContactResponseDto.cs
+│       │       │   └── ContactListItemResponseDto.cs
+│       │       ├── Domain/
+│       │       │   ├── Entities/
+│       │       │   ├── Errors/
+│       │       │   └── Services/
+│       │       ├── Repositories/
+│       │       │   └── IContactRepository.cs
+│       │       ├── Infrastructure/
+│       │       │   └── Persistence/
+│       │       │       ├── AppDbContext.cs
+│       │       │       ├── Configurations/
+│       │       │       └── Repositories/
+│       │       ├── Validations/
+│       │       └── Mappings/
+│       └── Shared/
+│           └── Errors/
 └── tests/
     └── crud-net.Tests/
-        ├── Common/
-        ├── Integration/
-        ├── Persistence/
-        ├── ContactAgeCalculatorTests.cs
-        └── ContactValidationTests.cs
 ```
 
-## 4. Como Rodar a Aplicação
+## 4. Responsabilidades por camada
 
-### 4.1 Pré-requisitos
+- Controllers: recebe HTTP, valida entrada e chama use case.
+- UseCases: concentra regra de negocio da acao.
+- Domain: entidade, servicos de dominio, invariantes e erros.
+- Repositories: contrato de persistencia.
+- Infrastructure: implementacao concreta com EF Core.
+- DTOs: payload de entrada e saida da API.
+- Shared: somente itens realmente compartilhados entre modulos.
 
-- SDK .NET 8 instalado
-- SQL Server disponível (local, container ou remoto)
+## 5. Rotas e status
 
-### 4.2 Configuração de conexão
+Base path: /api/contacts
 
-A conexão está em `crud-net/appsettings.json`:
+- POST /api/contacts -> 201
+- GET /api/contacts -> 200
+- GET /api/contacts/{id} -> 200
+- PUT /api/contacts/{id} -> 200
+- PATCH /api/contacts/{id}/activate -> 200
+- PATCH /api/contacts/{id}/deactivate -> 200
+- DELETE /api/contacts/{id} -> 204
+
+## 6. Regras de negocio preservadas
+
+- Nome obrigatorio e minimo de 3 caracteres.
+- Data de nascimento valida e nao futura.
+- Contato precisa ser maior de idade (18+).
+- Sexo permitido: MASCULINO, FEMININO, OUTRO (internamente enum Male, Female, Other; NotSpecified invalido).
+- Listagem e detalhe retornam somente contatos ativos.
+- Nao permite atualizar contato inativo.
+- Exclusao logica (soft delete).
+
+## 7. Padrao de erro
+
+Tratamento global converte excecoes de dominio em resposta padronizada:
+
+```json
+{
+  "code": "CONTACT_VALIDATION_ERROR",
+  "message": "Contact validation failed.",
+  "errors": {
+    "DateOfBirth": ["Contact must be an adult."]
+  }
+}
+```
+
+Codigos suportados:
+
+- CONTACT_VALIDATION_ERROR -> 400
+- CONTACT_NOT_FOUND -> 404
+- INVALID_ID -> 400
+- INTERNAL_SERVER_ERROR -> 500
+
+## 8. Como rodar a aplicacao
+
+### 8.1 Pre-requisitos
+
+- SDK .NET 8
+- SQL Server disponivel
+
+### 8.2 Connection string
+
+Configurar em crud-net/appsettings.json:
 
 ```json
 {
@@ -76,170 +141,40 @@ A conexão está em `crud-net/appsettings.json`:
 }
 ```
 
-Você pode sobrescrever por variável de ambiente:
+Ou por variavel de ambiente:
 
 ```bash
 export ConnectionStrings__DefaultConnection="Server=...;Database=...;User Id=...;Password=...;TrustServerCertificate=True"
 ```
 
-### 4.3 Restaurar e executar
+### 8.3 Executar
 
 ```bash
 dotnet restore
 dotnet run --project ./crud-net/crud-net.csproj
 ```
 
-Ao subir, abra o Swagger na URL exibida no terminal e acesse `/swagger`.
+Swagger: /swagger
 
-## 5. Endpoints da API
+## 9. Testes
 
-Base path: `/api/contacts`
-
-### 5.1 Criar contato
-
-- `POST /api/contacts`
-
-Exemplo de request:
-
-```json
-{
-  "name": "Maria Silva",
-  "dateOfBirth": "1990-01-10",
-  "gender": 1
-}
-```
-
-### 5.2 Listar contatos ativos
-
-- `GET /api/contacts`
-
-### 5.3 Obter detalhes de contato ativo
-
-- `GET /api/contacts/{id}`
-
-### 5.4 Atualizar contato ativo
-
-- `PUT /api/contacts/{id}`
-
-### 5.5 Ativar contato
-
-- `PATCH /api/contacts/{id}/activate`
-
-### 5.6 Desativar contato
-
-- `PATCH /api/contacts/{id}/deactivate`
-
-### 5.7 Excluir contato
-
-- `DELETE /api/contacts/{id}`
-
-Observação: a exclusão é lógica (soft delete). O registro não é removido fisicamente, mas deixa de aparecer nas consultas normais.
-
-## 6. Regras de Negócio
-
-As regras foram centralizadas em componentes de domínio e validação:
-
-- Nome obrigatório e com no mínimo 3 caracteres.
-- Data de nascimento não pode ser maior que a data atual.
-- Idade não pode ser igual a 0.
-- Contato deve ser maior de idade (>= 18 anos).
-- Sexo deve ser um valor válido do enum e diferente de `NotSpecified`.
-- Idade é calculada em tempo de execução, não persistida.
-- Listagem, visualização e edição consideram apenas contatos ativos.
-
-Enum `Gender`:
-
-- `0` = NotSpecified (inválido para criação/edição)
-- `1` = Female
-- `2` = Male
-- `3` = Other
-
-## 7. Como a Aplicação Funciona Internamente
-
-Fluxo simplificado de uma requisição:
-
-1. Endpoint do slice recebe o request.
-2. Validação de regras de entrada.
-3. Repositório busca/persiste dados via EF Core.
-4. Entidade de domínio aplica comportamento (ativar, desativar, excluir).
-5. Mapping para DTO de resposta com idade calculada em runtime.
-
-Esse fluxo evita lógica de negócio espalhada e facilita testes por responsabilidade.
-
-## 8. Arquitetura Adotada e Motivações
-
-### 8.1 Por que Vertical Slice
-
-A estrutura por caso de uso foi escolhida para:
-
-- Organizar por funcionalidade (e não por tipo técnico horizontal).
-- Reduzir acoplamento entre features.
-- Facilitar evolução incremental e manutenção.
-- Melhorar rastreabilidade: cada operação fica no seu slice.
-
-### 8.2 Onde estão as responsabilidades
-
-- `Features/Contacts/*`: casos de uso (endpoints + contratos + validações + mapeamento).
-- `Features/Contacts/Shared`: componentes reutilizados entre slices.
-- `Infrastructure/Persistence`: acesso a dados e configuração de banco.
-- `tests/*`: testes por comportamento (unitários e integração).
-
-## 9. Decisões de Design (SOLID)
-
-- SRP: cada endpoint/slice possui responsabilidade específica.
-- OCP: novas operações podem ser adicionadas em novos slices sem alterar os existentes.
-- LSP: contratos simples e previsíveis em repositórios/DTOs.
-- ISP: interface de repositório enxuta com operações necessárias ao domínio atual.
-- DIP: endpoints dependem de abstrações (`IContactRepository`, `IAppClock`), não de detalhes concretos.
-
-## 10. Testes Automatizados
-
-### 10.1 Rodar os testes
+Executar todos:
 
 ```bash
 dotnet test ./tests/crud-net.Tests/crud-net.Tests.csproj
 ```
 
-### 10.2 Tipos de teste implementados
+Cobertura implementada:
 
-- Unitários:
-  - cálculo de idade
-  - validações de regra de negócio
-- Integração de API (WebApplicationFactory + InMemory):
-  - criação válida/inválida
-  - comportamento de desativação na listagem
-  - exclusão com retorno 404 no GET
-  - cenários de ativo/inativo para GET/PUT
-  - tentativa de ativar contato menor de idade
-- Persistência (EF InMemory):
-  - add + get
-  - listagem apenas de ativos
-  - soft delete respeitando query filter
+- Unitarios de dominio (Contact e ContactAgeCalculator).
+- Unitarios de validacao (ContactInputValidator).
+- Unitarios de use cases com mock de repositorio (Moq).
+- Integracao HTTP cobrindo os 7 fluxos principais + cenarios de erro padronizado.
+- Integracao de repositorio com EF Core InMemory.
 
-## 11. Banco de Dados e Migrations
+## 10. Observacoes de arquitetura
 
-O projeto já está configurado para SQL Server.
-
-Se quiser versionar schema com migrations EF Core:
-
-```bash
-dotnet tool install --global dotnet-ef
-
-dotnet ef migrations add InitialCreate \
-  --project ./crud-net/crud-net.csproj \
-  --startup-project ./crud-net/crud-net.csproj \
-  --output-dir Infrastructure/Persistence/Migrations
-
-dotnet ef database update \
-  --project ./crud-net/crud-net.csproj \
-  --startup-project ./crud-net/crud-net.csproj
-```
-
-## 12. Critérios do Teste Técnico Atendidos
-
-- API REST em .NET Core.
-- Persistência em banco relacional (SQL Server via EF Core).
-- Separação de regras de negócio da apresentação.
-- Estrutura arquitetural por Vertical Slice.
-- Boas práticas OO e princípios SOLID.
-- Cobertura de testes unitários e de integração.
+- Sem pasta por caso de uso.
+- Modulo de contatos isolado em src/Features/Contacts.
+- Itens compartilhados globais em src/Shared.
+- Sem migracao de stack: EF Core e SQL Server mantidos.

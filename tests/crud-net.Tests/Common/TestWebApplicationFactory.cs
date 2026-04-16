@@ -1,5 +1,5 @@
-using crud_net.Features.Contacts;
-using crud_net.Infrastructure.Persistence;
+using crud_net.Features.Contacts.Domain.Services;
+using crud_net.Features.Contacts.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;

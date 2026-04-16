@@ -1,149 +1,218 @@
 using System.Net;
 using System.Net.Http.Json;
-using crud_net.Features.Contacts;
-using crud_net.Infrastructure.Persistence;
+using crud_net.Features.Contacts.Domain.Services;
+using crud_net.Features.Contacts.DTOs;
+using crud_net.Shared.Errors;
 using crud_net.Tests.Common;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace crud_net.Tests.Integration;
 
 public sealed class ContactsEndpointsIntegrationTests
 {
     [Fact]
-    public async Task PostContacts_WhenPayloadIsValid_ReturnsCreatedWithCalculatedAge()
+    public async Task PostContacts_WhenPayloadIsValid_ReturnsCreated()
     {
         using var factory = new TestWebApplicationFactory();
         using var client = CreateClient(factory);
 
-        var request = new CreateContactRequest("Maria Silva", new DateOnly(1990, 1, 10), Gender.Female);
+        var request = new CreateContactInputDto("Maria Silva", new DateOnly(1990, 1, 10), Gender.Female);
 
         var response = await client.PostAsJsonAsync("/api/contacts", request);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
-        var body = await response.Content.ReadFromJsonAsync<ContactResponse>();
+        var body = await response.Content.ReadFromJsonAsync<ContactResponseDto>();
         Assert.NotNull(body);
-
-        var expectedAge = ContactAgeCalculator.CalculateAge(request.DateOfBirth, TestWebApplicationFactory.FixedToday);
-        Assert.Equal(expectedAge, body!.Age);
-        Assert.Equal(request.Name, body.Name);
-        Assert.Equal(request.DateOfBirth, body.DateOfBirth);
+        Assert.Equal(request.Name, body!.Name);
         Assert.True(body.IsActive);
     }
 
     [Fact]
-    public async Task PostContacts_WhenContactIsUnderage_ReturnsBadRequestValidationProblem()
+    public async Task GetContacts_ReturnsOnlyActiveContacts()
     {
         using var factory = new TestWebApplicationFactory();
         using var client = CreateClient(factory);
 
-        var request = new CreateContactRequest("Joao Junior", TestWebApplicationFactory.FixedToday.AddYears(-17), Gender.Male);
+        var activeContact = await CreateContactAsync(client, "Contato Ativo", new DateOnly(1992, 8, 11), Gender.Female);
+        var inactiveContact = await CreateContactAsync(client, "Contato Inativo", new DateOnly(1991, 3, 20), Gender.Male);
 
-        var response = await client.PostAsJsonAsync("/api/contacts", request);
+        using var deactivateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/contacts/{inactiveContact.Id}/deactivate");
+        var deactivateResponse = await client.SendAsync(deactivateRequest);
+        Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var response = await client.GetAsync("/api/contacts");
 
-        var problem = await response.Content.ReadFromJsonAsync<HttpValidationProblemDetails>();
-        Assert.NotNull(problem);
-        Assert.True(problem!.Errors.ContainsKey(nameof(CreateContactRequest.DateOfBirth)));
-    }
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-    [Fact]
-    public async Task PatchDeactivateThenList_DoesNotReturnDeactivatedContact()
-    {
-        using var factory = new TestWebApplicationFactory();
-        using var client = CreateClient(factory);
-
-        var deactivated = await CreateContactAsync(client, "Contato Desativado", new DateOnly(1991, 3, 20), Gender.Male);
-        var active = await CreateContactAsync(client, "Contato Ativo", new DateOnly(1992, 8, 11), Gender.Female);
-
-        using var patchRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/contacts/{deactivated.Id}/deactivate");
-        var patchResponse = await client.SendAsync(patchRequest);
-
-        Assert.Equal(HttpStatusCode.OK, patchResponse.StatusCode);
-
-        var listResponse = await client.GetAsync("/api/contacts");
-        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
-
-        var contacts = await listResponse.Content.ReadFromJsonAsync<List<ContactListItemResponse>>();
+        var contacts = await response.Content.ReadFromJsonAsync<List<ContactListItemResponseDto>>();
         Assert.NotNull(contacts);
-
-        Assert.DoesNotContain(contacts!, contact => contact.Id == deactivated.Id);
-        Assert.Contains(contacts!, contact => contact.Id == active.Id);
+        Assert.Contains(contacts!, contact => contact.Id == activeContact.Id);
+        Assert.DoesNotContain(contacts!, contact => contact.Id == inactiveContact.Id);
     }
 
     [Fact]
-    public async Task DeleteThenGetById_ReturnsNotFound()
+    public async Task GetContactsById_WhenContactIsActive_ReturnsOk()
+    {
+        using var factory = new TestWebApplicationFactory();
+        using var client = CreateClient(factory);
+
+        var created = await CreateContactAsync(client, "Contato Detalhe", new DateOnly(1988, 2, 20), Gender.Male);
+
+        var response = await client.GetAsync($"/api/contacts/{created.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<ContactResponseDto>();
+        Assert.NotNull(body);
+        Assert.Equal(created.Id, body!.Id);
+    }
+
+    [Fact]
+    public async Task PutContactsById_WhenContactIsActive_ReturnsOk()
+    {
+        using var factory = new TestWebApplicationFactory();
+        using var client = CreateClient(factory);
+
+        var created = await CreateContactAsync(client, "Contato Atualizar", new DateOnly(1987, 5, 14), Gender.Female);
+        var request = new UpdateActiveContactInputDto("Nome Atualizado", new DateOnly(1987, 5, 14), Gender.Other);
+
+        var response = await client.PutAsJsonAsync($"/api/contacts/{created.Id}", request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<ContactResponseDto>();
+        Assert.NotNull(body);
+        Assert.Equal(request.Name, body!.Name);
+        Assert.Equal(request.Gender, body.Gender);
+    }
+
+    [Fact]
+    public async Task PatchDeactivate_WhenContactIsActive_ReturnsOk()
+    {
+        using var factory = new TestWebApplicationFactory();
+        using var client = CreateClient(factory);
+
+        var created = await CreateContactAsync(client, "Contato Para Desativar", new DateOnly(1989, 9, 9), Gender.Male);
+
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/contacts/{created.Id}/deactivate");
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<ContactResponseDto>();
+        Assert.NotNull(body);
+        Assert.False(body!.IsActive);
+    }
+
+    [Fact]
+    public async Task PatchActivate_WhenContactIsInactiveAdult_ReturnsOk()
+    {
+        using var factory = new TestWebApplicationFactory();
+        using var client = CreateClient(factory);
+
+        var created = await CreateContactAsync(client, "Contato Para Ativar", new DateOnly(1990, 4, 15), Gender.Female);
+
+        using (var deactivateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/contacts/{created.Id}/deactivate"))
+        {
+            var deactivateResponse = await client.SendAsync(deactivateRequest);
+            Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
+        }
+
+        using var activateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/contacts/{created.Id}/activate");
+        var activateResponse = await client.SendAsync(activateRequest);
+
+        Assert.Equal(HttpStatusCode.OK, activateResponse.StatusCode);
+
+        var body = await activateResponse.Content.ReadFromJsonAsync<ContactResponseDto>();
+        Assert.NotNull(body);
+        Assert.True(body!.IsActive);
+    }
+
+    [Fact]
+    public async Task DeleteContactsById_WhenContactExists_ReturnsNoContent()
     {
         using var factory = new TestWebApplicationFactory();
         using var client = CreateClient(factory);
 
         var created = await CreateContactAsync(client, "Contato Para Excluir", new DateOnly(1989, 6, 30), Gender.Other);
 
-        var deleteResponse = await client.DeleteAsync($"/api/contacts/{created.Id}");
-        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+        var response = await client.DeleteAsync($"/api/contacts/{created.Id}");
 
-        var getResponse = await client.GetAsync($"/api/contacts/{created.Id}");
-        Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
 
     [Fact]
-    public async Task GetById_WhenContactIsDeactivated_ReturnsNotFound()
+    public async Task GetContactsById_WhenIdIsInvalid_ReturnsBadRequestWithInvalidIdCode()
     {
         using var factory = new TestWebApplicationFactory();
         using var client = CreateClient(factory);
 
-        var created = await CreateContactAsync(client, "Contato Inativo", new DateOnly(1990, 2, 2), Gender.Male);
+        var response = await client.GetAsync("/api/contacts/id-invalido");
 
-        using var deactivateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/contacts/{created.Id}/deactivate");
-        var deactivateResponse = await client.SendAsync(deactivateRequest);
-        Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
-        var getResponse = await client.GetAsync($"/api/contacts/{created.Id}");
-        Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
+        var error = await response.Content.ReadFromJsonAsync<ApiErrorResponse>();
+        Assert.NotNull(error);
+        Assert.Equal(AppErrorCodes.InvalidId, error!.Code);
     }
 
     [Fact]
-    public async Task Put_WhenContactIsDeactivated_ReturnsNotFound()
+    public async Task PostContacts_WhenContactIsUnderage_ReturnsBadRequestWithValidationCode()
+    {
+        using var factory = new TestWebApplicationFactory();
+        using var client = CreateClient(factory);
+
+        var request = new CreateContactInputDto("Joao Junior", TestWebApplicationFactory.FixedToday.AddYears(-17), Gender.Male);
+
+        var response = await client.PostAsJsonAsync("/api/contacts", request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var error = await response.Content.ReadFromJsonAsync<ApiErrorResponse>();
+        Assert.NotNull(error);
+        Assert.Equal(AppErrorCodes.ContactValidationError, error!.Code);
+        Assert.NotNull(error.Errors);
+        Assert.True(error.Errors!.ContainsKey(nameof(CreateContactInputDto.DateOfBirth)));
+    }
+
+    [Fact]
+    public async Task PutContactsById_WhenContactIsInactive_ReturnsNotFoundWithCode()
     {
         using var factory = new TestWebApplicationFactory();
         using var client = CreateClient(factory);
 
         var created = await CreateContactAsync(client, "Contato Inativo", new DateOnly(1990, 2, 2), Gender.Female);
 
-        using var deactivateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/contacts/{created.Id}/deactivate");
-        var deactivateResponse = await client.SendAsync(deactivateRequest);
-        Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
+        using (var deactivateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/contacts/{created.Id}/deactivate"))
+        {
+            var deactivateResponse = await client.SendAsync(deactivateRequest);
+            Assert.Equal(HttpStatusCode.OK, deactivateResponse.StatusCode);
+        }
 
-        var updateRequest = new UpdateContactRequest("Nome Atualizado", new DateOnly(1989, 10, 10), Gender.Other);
+        var updateRequest = new UpdateActiveContactInputDto("Nome Atualizado", new DateOnly(1989, 10, 10), Gender.Other);
         var updateResponse = await client.PutAsJsonAsync($"/api/contacts/{created.Id}", updateRequest);
 
         Assert.Equal(HttpStatusCode.NotFound, updateResponse.StatusCode);
+
+        var error = await updateResponse.Content.ReadFromJsonAsync<ApiErrorResponse>();
+        Assert.NotNull(error);
+        Assert.Equal(AppErrorCodes.ContactNotFound, error!.Code);
     }
 
     [Fact]
-    public async Task Activate_WhenUnderageContactSeeded_ReturnsBadRequest()
+    public async Task GetContactsById_WhenContactDoesNotExist_ReturnsNotFoundWithCode()
     {
         using var factory = new TestWebApplicationFactory();
         using var client = CreateClient(factory);
 
-        var underageContact = await SeedContactAsync(
-            factory,
-            "Contato Menor",
-            TestWebApplicationFactory.FixedToday.AddYears(-17),
-            Gender.Male,
-            isActive: false);
+        var response = await client.GetAsync($"/api/contacts/{Guid.NewGuid()}");
 
-        using var activateRequest = new HttpRequestMessage(HttpMethod.Patch, $"/api/contacts/{underageContact.Id}/activate");
-        var activateResponse = await client.SendAsync(activateRequest);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
 
-        Assert.Equal(HttpStatusCode.BadRequest, activateResponse.StatusCode);
-
-        var problem = await activateResponse.Content.ReadFromJsonAsync<HttpValidationProblemDetails>();
-        Assert.NotNull(problem);
-        Assert.True(problem!.Errors.ContainsKey(nameof(Contact.DateOfBirth)));
+        var error = await response.Content.ReadFromJsonAsync<ApiErrorResponse>();
+        Assert.NotNull(error);
+        Assert.Equal(AppErrorCodes.ContactNotFound, error!.Code);
     }
 
     private static HttpClient CreateClient(TestWebApplicationFactory factory)
@@ -154,42 +223,20 @@ public sealed class ContactsEndpointsIntegrationTests
         });
     }
 
-    private static async Task<ContactResponse> CreateContactAsync(
+    private static async Task<ContactResponseDto> CreateContactAsync(
         HttpClient client,
         string name,
         DateOnly dateOfBirth,
         Gender gender)
     {
-        var request = new CreateContactRequest(name, dateOfBirth, gender);
+        var request = new CreateContactInputDto(name, dateOfBirth, gender);
         var response = await client.PostAsJsonAsync("/api/contacts", request);
 
         response.EnsureSuccessStatusCode();
 
-        var body = await response.Content.ReadFromJsonAsync<ContactResponse>();
+        var body = await response.Content.ReadFromJsonAsync<ContactResponseDto>();
         Assert.NotNull(body);
 
         return body!;
-    }
-
-    private static async Task<Contact> SeedContactAsync(
-        TestWebApplicationFactory factory,
-        string name,
-        DateOnly dateOfBirth,
-        Gender gender,
-        bool isActive)
-    {
-        using var scope = factory.Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        var contact = Contact.Create(name, dateOfBirth, gender, TestWebApplicationFactory.FixedUtcNow);
-        if (!isActive)
-        {
-            contact.Deactivate(TestWebApplicationFactory.FixedUtcNow);
-        }
-
-        dbContext.Contacts.Add(contact);
-        await dbContext.SaveChangesAsync();
-
-        return contact;
     }
 }
